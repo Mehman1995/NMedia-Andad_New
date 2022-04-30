@@ -7,8 +7,11 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.PopupMenu
 import androidx.fragment.app.viewModels
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
+import androidx.paging.map
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.collectLatest
 import ru.netology.nmedia.R
 import ru.netology.nmedia.databinding.FragmentSinglePostBinding
 import ru.netology.nmedia.dto.Post
@@ -30,10 +33,20 @@ class SinglePostFragment : Fragment() {
         val id = arguments?.getLong("id")
         var singlePost: Post? = null
 
-        viewModel.data.observe(viewLifecycleOwner) { state ->
-            state.posts.map { post ->
-                if (post.id == id) {
-                    singlePost = post
+//        viewModel.data.observe(viewLifecycleOwner) { state ->
+//            state.posts.map { post ->
+//                if (post.id == id) {
+//                    singlePost = post
+//                }
+//            }
+
+            lifecycleScope.launchWhenCreated {
+                viewModel.data.collectLatest {
+                    it.map { post ->
+                        if (post.id == id) {
+                            singlePost = post
+                        }
+                    }
                 }
             }
 
@@ -54,7 +67,7 @@ class SinglePostFragment : Fragment() {
 
 
             }
-        }
+
 
 
         binding.menu.setOnClickListener {
