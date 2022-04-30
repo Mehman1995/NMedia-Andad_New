@@ -3,19 +3,22 @@ package ru.netology.nmedia.repository
 import android.net.Uri
 import androidx.core.net.toFile
 import androidx.core.net.toUri
-import ru.netology.nmedia.dao.PostDao
-import ru.netology.nmedia.entity.PostEntity
-import ru.netology.nmedia.entity.toEntity
+import androidx.paging.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import ru.netology.nmedia.api.ApiService
+import ru.netology.nmedia.dao.PostDao
+import ru.netology.nmedia.dao.PostRemoteKeyDao
 import ru.netology.nmedia.dao.PostWorkDao
+import ru.netology.nmedia.db.AppDb
 import ru.netology.nmedia.dto.*
+import ru.netology.nmedia.entity.PostEntity
+import ru.netology.nmedia.entity.PostRemoteKeyEntity
 import ru.netology.nmedia.entity.PostWorkEntity
-import ru.netology.nmedia.entity.toDto
+import ru.netology.nmedia.entity.toEntity
 import ru.netology.nmedia.error.ApiError
 import ru.netology.nmedia.error.AppError
 import ru.netology.nmedia.error.NetworkError
@@ -27,13 +30,24 @@ import javax.inject.Inject
 class PostRepositoryImpl @Inject constructor(
     private val postDao: PostDao,
     private val postWorkDao: PostWorkDao,
-    private val apiService: ApiService
+    private val apiService: ApiService,
+    postRemoteKeyDao: PostRemoteKeyDao,
+    appDb: AppDb
 ) :
     PostRepository {
 
-    override val data: Flow<List<Post>> = postDao.getAll()
-        .map { it.toDto() }
-        .flowOn(Dispatchers.Default)
+    @OptIn(ExperimentalPagingApi::class)
+    override val data: Flow<PagingData<Post>> = Pager(
+        config = PagingConfig(
+            pageSize = 10,
+            enablePlaceholders = false,
+        ),
+        remoteMediator = PostRemoteMediator(apiService, postDao, postRemoteKeyDao, appDb),
+        pagingSourceFactory = {
+            postDao.getPagingSource()
+        }
+    ).flow
+        .map { it.map(PostEntity::toDto) }
 
 
     override suspend fun getAll() {
@@ -52,6 +66,12 @@ class PostRepositoryImpl @Inject constructor(
             throw UnknownError
         }
     }
+
+    override fun getSinglePost(id: Long): Flow<Post?> =
+        postDao.getPostById(id).map {
+            it?.toDto()
+        }
+
 
     override suspend fun getNewPosts() {
         try {

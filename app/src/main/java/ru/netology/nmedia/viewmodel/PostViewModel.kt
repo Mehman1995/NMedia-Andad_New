@@ -3,13 +3,18 @@ package ru.netology.nmedia.viewmodel
 import android.net.Uri
 import androidx.core.net.toFile
 import androidx.lifecycle.*
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
+import androidx.paging.insertSeparators
+import androidx.paging.map
 import androidx.work.*
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.scopes.ViewModelScoped
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.*
 import ru.netology.nmedia.auth.AppAuth
+import ru.netology.nmedia.dto.Ad
+import ru.netology.nmedia.dto.FeedItem
 import ru.netology.nmedia.dto.MediaUpload
 import ru.netology.nmedia.dto.Post
 import ru.netology.nmedia.enumeration.RetryType
@@ -22,6 +27,7 @@ import ru.netology.nmedia.work.RemovePostWorker
 import ru.netology.nmedia.work.SavePostWorker
 import java.io.File
 import javax.inject.Inject
+import kotlin.random.Random
 
 private val emptyPost = Post(
     id = 0,
@@ -40,21 +46,38 @@ private val emptyPost = Post(
 @HiltViewModel
 class PostViewModel @Inject constructor(
     private val repository: PostRepository,
-    private val appAuth: AppAuth,
-    private val workManager: WorkManager
+    private val workManager: WorkManager,
+    private val appAuth: AppAuth
+
 ) : ViewModel() {
 
-    val data: LiveData<FeedModel> = appAuth
-        .authStateFlow
-        .flatMapLatest { (myId, _) ->
-            repository.data
-                .map { posts ->
-                    FeedModel(
-                        posts.map { it.copy(ownedByMe = it.authorId == myId) },
-                        posts.isEmpty()
-                    )
+    private val cached = repository.data.cachedIn(viewModelScope)
+
+//    val data: Flow<PagingData<FeedItem>> = cached.map {
+//        it.insertSeparators { previous, _ ->
+//            if (previous?.id?.rem(5) == 0L) {
+//                Ad(Random.nextLong(), "figma.jpg")
+//            } else {
+//                null
+//            }
+//        }
+//    }
+
+    val data: Flow<PagingData<FeedItem>> = appAuth.authStateFlow.flatMapLatest { (myId, _) ->
+        cached.map { posts ->
+            posts.map { it.copy(ownedByMe = it.authorId == myId) }
+        }
+            .map {
+                it.insertSeparators { previous, _ ->
+                    if (previous?.id?.rem(5) == 0L) {
+                        Ad(Random.nextLong(), "figma.jpg")
+                    } else {
+                        null
+                    }
                 }
-        }.asLiveData(Dispatchers.Default)
+            }
+    }.flowOn(Dispatchers.Default)
+
 
     private val _dataState = MutableLiveData<FeedModelState>()
     val dataState: LiveData<FeedModelState>
@@ -65,11 +88,11 @@ class PostViewModel @Inject constructor(
     val postCreated: LiveData<Unit>
         get() = _postCreated
 
-    val newerCount: LiveData<Int> = data.switchMap {
-        repository.getNewerCount(it.posts.firstOrNull()?.id ?: 0L)
-            .catch { e -> _dataState.postValue(FeedModelState(error = true)) }
-            .asLiveData(Dispatchers.Default)
-    }
+//        val newerCount: LiveData<Int> = data.switchMap {
+//            repository.getNewerCount(it.posts.firstOrNull()?.id ?: 0L)
+//                .catch { e -> _dataState.postValue(FeedModelState(error = true)) }
+//                .asLiveData(Dispatchers.Default)
+//        }
 
     private val noPhoto = PhotoModel()
     private val _photo = MutableLiveData(noPhoto)
@@ -197,6 +220,8 @@ class PostViewModel @Inject constructor(
     fun changePhoto(uri: Uri?, file: File?) {
         _photo.value = PhotoModel(uri, file)
     }
+
+    fun getSinglePost(id: Long): Flow<Post?> = repository.getSinglePost(id)
 
 
     fun cancelEditing() = edited.value?.let {
